@@ -8,6 +8,8 @@ import subprocess as sp
 import time
 import subprocess
 import sys
+import stat
+import socket
 from distutils.spawn import find_executable
 from functools import partial
 from pathlib import Path
@@ -28,15 +30,19 @@ def fail(*msgs, retcode: int = 1) -> NoReturn:
     exit(retcode)
 
 
-def is_socket_open(path: Path) -> bool:
-    """Returns True if the UNIX socket exists and is currently listening."""
+def is_socket_open(socket_path, timeout=1):
+    if not os.path.exists(socket_path):
+        return False
+
     try:
-        proc = sp.run(
-            ["socat", "-u", "OPEN:/dev/null", f"UNIX-CONNECT:{path.resolve()}"],
-            stdout=sp.PIPE,
-            stderr=sp.PIPE,
-        )
-        return proc.returncode == 0
+        mode = os.stat(socket_path).st_mode
+        if not stat.S_ISSOCK(mode):
+            return False
+
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(timeout)
+            client.connect(socket_path)
+        return True 
     except:
         return False
 
