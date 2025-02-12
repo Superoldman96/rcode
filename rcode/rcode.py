@@ -296,6 +296,10 @@ def main(is_cursor=False):
     if IS_REMOTE_VSCODE:
         run_remote(options.dir, is_cursor=is_cursor)
     else:
+        rcode_home = Path.home() / ".rcode"
+        if not rcode_home.exists():
+            rcode_home.mkdir()
+
         run_loacl(
             options.host,
             options.dir,

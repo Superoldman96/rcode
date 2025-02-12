@@ -6,8 +6,9 @@ import sys
 import socket
 import time
 import uuid
+import json
 
-from rcode.ipc import IPCServerSocket, DEFAULT_IPC_PORT
+from rcode.ipc import IPCServerSocket, DEFAULT_IPC_PORT, DELIMITER
 
 def establish_ssh_connection(args, tunnel_port):
     sid = str(uuid.uuid4())
@@ -83,11 +84,11 @@ def start_rpc_server():
     return server, server_thread
 
 def connect_to_rpc_server():
-
     def connect():
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect(('127.0.0.1', DEFAULT_IPC_PORT))
+            
             return sock
         except socket.error:
             return None
@@ -108,10 +109,33 @@ def connect_to_rpc_server():
     return socks_client
 
 def main():
-    with connect_to_rpc_server() as client:
-        if not client:
+    with connect_to_rpc_server() as sock:
+        if not sock:
             print("Error: Failed to connect to RPC server", file=sys.stderr)
             sys.exit(1)
+
+        # 发送注册消息
+        register_payload = {
+            "method": "new_session",
+            "params": {
+                "id": str(uuid.uuid4()),
+                "addr": sock.getsockname()[0],
+                "hostname": socket.gethostname(),
+                "key": str(uuid.uuid4())  # 生成一个随机key
+            }
+        }
+        
+        # 发送注册消息
+        message = json.dumps(register_payload).encode('utf-8') + DELIMITER
+        sock.sendall(message)
+        
+        # 等待响应
+        response = sock.recv(1024)
+        if response:
+            response_data = json.loads(response.decode('utf-8').rstrip('\x1e'))
+            if response_data.get('code') != 0:
+                print(f"Registration failed: {response_data.get('message')}")
+                return None
         
         establish_ssh_connection(sys.argv[1:], DEFAULT_IPC_PORT)
 

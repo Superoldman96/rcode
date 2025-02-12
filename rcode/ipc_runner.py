@@ -1,14 +1,43 @@
-from rcode.ipc import IPCServerSocket, DEFAULT_IPC_PORT
+import argparse
+from ipc import IPCServerSocket, DEFAULT_IPC_PORT
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="IPC Server")
+    parser.add_argument(
+        "-a",
+        "--address",
+        type=str,
+        default="127.0.0.1",
+        help="Address to listen on (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        default=DEFAULT_IPC_PORT,
+        help=f"Port to listen on (default: {DEFAULT_IPC_PORT})",
+    )
+    parser.add_argument(
+        "-i",
+        "--max-idle",
+        type=int,
+        default=10,
+        help="Maximum idle time in seconds (default: 10)",
+    )
+    
+    return parser.parse_args()
+
 
 def main():
+    args = parse_args()
     server = IPCServerSocket()
     try:
-        # 启动 IPC 服务，注意这里为阻塞运行，直到服务停止
-        server.start('127.0.0.1', DEFAULT_IPC_PORT)
+        server.start(args.address, args.port, args.max_idle)
     except KeyboardInterrupt:
         print("\nShutting down IPC server...")
     finally:
         server.stop()
+
 
 if __name__ == "__main__":
     main()
