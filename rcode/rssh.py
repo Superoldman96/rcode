@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import subprocess as sp
 import sys
 import socket
@@ -8,66 +7,83 @@ import time
 import uuid
 import json
 
-from rcode.ipc import IPCServerSocket, DEFAULT_IPC_PORT, DELIMITER
+from pathlib import Path
 
-def establish_ssh_connection(args, tunnel_port):
-    sid = str(uuid.uuid4())
+from ipc import IPCServerSocket, DEFAULT_IPC_PORT, DELIMITER
 
+ROOT_DIR = Path.home() / ".rcode"
 
-    ssh_cmd = ['ssh']
+def init_root_dir():
+    migration = ROOT_DIR.is_file()
+    if migration:
+        ROOT_DIR.rename(ROOT_DIR.with_name('rcode.bk'))
+
+    if not ROOT_DIR.exists():
+        ROOT_DIR.mkdir(parents=True)
     
-    # Add reverse tunnel
-    ssh_cmd.extend(['-R', f'{tunnel_port}:localhost:{tunnel_port}'])
-    
-    # Check for -R in arguments
+    config_file = ROOT_DIR / "rssh.config"
+    key_file = ROOT_DIR / "rssh.keyfile"
+
+    if not config_file.exists():
+        config_file.write_text("")
+
+    my_key = str(uuid.uuid4())
+    if not key_file.exists():
+        key_file.write_text(my_key) 
+
+    if migration:
+        file = Path.home() / "rcode.bk"
+        file.rename(ROOT_DIR / "rcode")
+
+def find_destination_position(args):
     for i, arg in enumerate(args):
-        if arg == '-R' or (arg.startswith('-') and 'R' in arg):
-            print("Error: -R option is not supported in rssh as the tunnel is automatically established", 
-                  file=sys.stderr)
-            sys.exit(1)
-    
-    # Find the host argument - it's the first argument that doesn't start with '-'
-    # and isn't preceded by an option that takes a parameter
-    host = None
-    skip_next = False
-    for i, arg in enumerate(args):
-        if skip_next:
-            skip_next = False
-            continue
-            
-        if arg.startswith('-'):
-            # List of SSH options that take a parameter
-            if arg in ['-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-L', '-l', 
-                      '-m', '-O', '-o', '-p', '-Q', '-S', '-W', '-w']:
-                skip_next = True
-            continue
-        else:
-            host = arg
-            args_before_host = args[:i]
-            args_after_host = args[i+1:]
-            break
-    
-    if not host:
-        print("Error: No host specified", file=sys.stderr)
+        if not arg.startswith('-'):
+            return i
+    return -1
+
+def establish_ssh_connection(session):
+    args = sys.argv[1:]  # remove rssh itself
+    if "-R" in args:
+        print("Error: -R is not allowed.", file=sys.stderr)
         sys.exit(1)
+
+    host = "127.0.0.1"
+    if len(args) > 0 and "-ia" == args[0]:
+        host = args[1]
+        args = args[2:]
+
+    port = DEFAULT_IPC_PORT
+    if len(args) > 0 and "-il" == args[0]:
+        port = args[1]
+        args = args[2:]
+
+    dest_pos = find_destination_position(args)
+    if dest_pos == -1:
+        proc = sp.run(['ssh'] + args)
+        sys.exit(proc.returncode)
+
+    pre_dest = ["ssh"] + args[:dest_pos]
+    post_dest = args[dest_pos:]
+    if '-t' not in pre_dest:
+        pre_dest.append('-t')
     
-    # Construct the final command
-    ssh_cmd.extend(args_before_host)
-    ssh_cmd.append(host)
+    sid = session["sid"]
+    key = session["key"]
+    ipc_sock = f"/tmp/rssh-ipc-{sid}.sock"
+    pre_dest.extend(["-R", f"{ipc_sock}:{host}:{port}"])
+
+    remote_command = f'export RSSH_SID={sid}; export RSSH_SKEY={key}; exec $SHELL'
+    post_dest.append(remote_command)
     
-    # Inject RSSH_HOSTNAME into the remote environment
-    if args_after_host:
-        remote_command = f'export RSSH_HOSTNAME={host}; {" ".join(args_after_host)}'
-    else:
-        remote_command = f'export RSSH_HOSTNAME={host}; exec $SHELL'
-    
-    ssh_cmd.append(remote_command)
-    
+    ssh_args = pre_dest + post_dest
+
     try:
-        print(ssh_cmd)
-        sp.run(ssh_cmd, shell=True)
+        print(ssh_args)
+        # proc = sp.run(['ssh'] + ssh_args)
+        # sys.exit(proc.returncode)
     except KeyboardInterrupt:
-        print("\nSSH connection terminated.")
+        pass
+    
 
 def is_rpc_server_running():
     try:
@@ -108,36 +124,33 @@ def connect_to_rpc_server():
     
     return socks_client
 
-def main():
-    with connect_to_rpc_server() as sock:
-        if not sock:
-            print("Error: Failed to connect to RPC server", file=sys.stderr)
-            sys.exit(1)
+def create_session():
+    session = {"sid": str(uuid.uuid4()), "key": str(uuid.uuid4())}
 
-        # 发送注册消息
-        register_payload = {
-            "method": "new_session",
-            "params": {
-                "id": str(uuid.uuid4()),
-                "addr": sock.getsockname()[0],
-                "hostname": socket.gethostname(),
-                "key": str(uuid.uuid4())  # 生成一个随机key
-            }
-        }
+    return session
+
+def main():
+    session = create_session()
+    init_root_dir()
+    establish_ssh_connection(session)
+    # pass
+    # with connect_to_rpc_server() as sock:
+    #     if not sock:
+    #         print("Error: Failed to connect to RPC server", file=sys.stderr)
+    #         sys.exit(1)
+
+    #     # 发送注册消息
+    #     register_payload = {
+    #         "method": "new_session",
+    #         "params": {
+    #             "id": str(uuid.uuid4()),
+    #             "addr": sock.getsockname()[0],
+    #             "hostname": socket.gethostname(),
+    #             "key": str(uuid.uuid4())  # 生成一个随机key
+    #         }
+    #     }
         
-        # 发送注册消息
-        message = json.dumps(register_payload).encode('utf-8') + DELIMITER
-        sock.sendall(message)
-        
-        # 等待响应
-        response = sock.recv(1024)
-        if response:
-            response_data = json.loads(response.decode('utf-8').rstrip('\x1e'))
-            if response_data.get('code') != 0:
-                print(f"Registration failed: {response_data.get('message')}")
-                return None
-        
-        establish_ssh_connection(sys.argv[1:], DEFAULT_IPC_PORT)
+    #     establish_ssh_connection(sys.argv[1:], DEFAULT_IPC_PORT)
 
     
 

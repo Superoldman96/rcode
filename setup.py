@@ -31,7 +31,7 @@ setup(
             "rcode = rcode.rcode:main", 
             "rcursor = rcode.rcode:cmain",
             "rssh = rcode.rssh:main",
-            "rcode-ipc = rcode.ipc_runner:main",
+            "rssh-ipc = rcode.ipc_runner:main",
         ],
     },
 )
