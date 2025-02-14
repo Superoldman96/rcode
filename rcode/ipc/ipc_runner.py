@@ -1,5 +1,5 @@
 import argparse
-from ipc import IPCServerSocket, DEFAULT_IPC_PORT
+from . import IPCServerSocket, DEFAULT_IPC_PORT
 
 def parse_args():
     parser = argparse.ArgumentParser(description="IPC Server")
@@ -21,7 +21,7 @@ def parse_args():
         "-i",
         "--max-idle",
         type=int,
-        default=10,
+        default=600,
         help="Maximum idle time in seconds (default: 10)",
     )
     
@@ -30,9 +30,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    server = IPCServerSocket()
+    server = IPCServerSocket(args.max_idle)
     try:
-        server.start(args.address, args.port, args.max_idle)
+        server.start(args.address, args.port)
     except KeyboardInterrupt:
         print("\nShutting down IPC server...")
     finally:

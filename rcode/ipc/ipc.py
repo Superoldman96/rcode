@@ -97,8 +97,8 @@ class MessageHandler:
             if field not in params:
                 raise ValueError(f"Missing required field: {field}")
             
-        keyfile_path = Path.home() / ".rssh/keyfile"
-        if not keyfile_path.exists():
+        keyfile = Path.home() / ".rcode/rssh.keyfile"
+        if not keyfile.exists() or keyfile.read_text() != params["keyfile"]:
             raise IPCAuthError(f"Authentication failed")
         
         sid = data.sid
@@ -121,11 +121,12 @@ class MessageHandler:
 
 
 class IPCServerSocket:
-    def __init__(self):
+    def __init__(self, max_idle: int = 600):
         self.selector = selectors.DefaultSelector()
         self.message_handler = MessageHandler()
         self.running = False
         self.server_socket = None
+        self.max_idle = max_idle
 
     def _accept(self, sock):
         conn, addr = sock.accept()
@@ -182,7 +183,7 @@ class IPCServerSocket:
                     else:
                         self.selector.modify(sock, selectors.EVENT_READ, data=data)
 
-    def start(self, host: str, port: int, max_idle: int = 10):
+    def start(self, host: str, port: int):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((host, port))
@@ -192,12 +193,16 @@ class IPCServerSocket:
         self.selector.register(self.server_socket, selectors.EVENT_READ, data=None)
         
         self.running = True
+        idle = 0
         while self.running:
-            events = self.selector.select(timeout=max_idle)
-            if not events and len(self.selector.get_map()) == 1:
+            events = self.selector.select(timeout=10)
+            idle += 10
+            clients = len(self.selector.get_map())
+            if not events and clients == 1 and idle > self.max_idle:
                 break
-
+            
             for key, mask in events:
+                idle = 0
                 try:
                     if key.data is None:
                         self._accept(key.fileobj)

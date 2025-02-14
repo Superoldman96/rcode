@@ -1,6 +1,6 @@
 import json
 
-from ipc import IPCClientSocket
+from rcode.ipc import IPCClientSocket
 
 HOST = '127.0.0.1'  # 本地主机
 PORT = 7532        # 端口号
