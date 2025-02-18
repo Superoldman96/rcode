@@ -83,6 +83,7 @@ def connect_to_rpc_server(host: str, port: int):
 
     for _ in range(10):
         try:
+            socks_client = IPCClientSocket()
             socks_client.connect((host, port))
             if socks_client.connected:
                 break
