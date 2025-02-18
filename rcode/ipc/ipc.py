@@ -268,7 +268,7 @@ class IPCClientSocket:
                 return message
                 
     def close(self):
-        if self.sock:
+        if self.sock and self.connected:
             self.sock.close()
             self.connected = False
             self.sock = None

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import stat
 import socket
+import json
 from distutils.spawn import find_executable
 from functools import partial
 from pathlib import Path
@@ -17,6 +18,7 @@ from os.path import expanduser
 from typing import Iterable, List, NoReturn, Sequence, Tuple
 
 from sshconf import read_ssh_config  # type: ignore
+from rcode.ipc import IPCClientSocket
 
 # IPC sockets will be filtered based when they were last accessed
 # This gives an upper bound in seconds to the timestamps
@@ -168,26 +170,51 @@ def get_ipc_socket(max_idle_time: int = DEFAULT_MAX_IDLE_TIME, is_cursor=False) 
     return next_open_socket(sock_list, is_cursor=is_cursor)
 
 
-def check_for_binaries() -> None:
-    """Verifies that all required binaries are available in $PATH."""
-    if not find_executable("socat"):
-        fail('"socat" not found in $PATH, but is required for code-connect')
+def send_and_run(bin_name: str, dirname: str, sid: str, skey: str):
+    ipc_sock = f"/tmp/rssh-ipc-{sid}.sock"
+    
+    try:
+        sock = IPCClientSocket(socket.AF_UNIX)
+        sock.connect(ipc_sock)
 
+        payload = {
+            "method": "open_ide",
+            "params": {
+                "sid": sid,
+                "skey": skey,
+                "bin": bin_name,
+                "path": os.path.abspath(dirname),
+            }
+        }
+        sock.write(payload)
+        res = json.loads(sock.read()) or {}
+        if res.get("code", -1) != 0:
+            fail(res.get("message", "Unknown error"))
+    except Exception as e:
+        fail(f"Failed to connect to rssh's IPC socket: {e}")
+    finally:
+        sock.close()
 
 def run_remote(
     dir_name, max_idle_time: int = DEFAULT_MAX_IDLE_TIME, is_cursor: bool = False
 ) -> NoReturn:
     if not dir_name:
         raise Exception("need dir name here")
-    # Fetch the path of the "code" executable
-    # and determine an active IPC socket to use
-    if IS_REMOTE_VSCODE:
-        check_for_binaries()
+    
+    sid = os.environ.get("RSSH_SID")
+    skey = os.environ.get("RSSH_SKEY")
+    if sid and skey:
+        # communicate with rssh's IPC Socket
+        bin_name = "cursor" if is_cursor else "code"
+        send_and_run(bin_name, dir_name, sid, skey)
+    elif IS_REMOTE_VSCODE:
+        # communicate with vscode's IPC socket
+        # Fetch the path of the "code" executable
+        # and determine an active IPC socket to use
         code_binary = get_code_binary() if not is_cursor else get_cursor_binary()
         ipc_socket = get_ipc_socket(max_idle_time, is_cursor=is_cursor)
         args = [str(code_binary)]
         args.append(dir_name)
-        print(ipc_socket)
         os.environ["VSCODE_IPC_HOOK_CLI"] = str(ipc_socket)
 
         # run the "code" executable with the proper environment variable set
@@ -296,10 +323,6 @@ def main(is_cursor=False):
     if IS_REMOTE_VSCODE:
         run_remote(options.dir, is_cursor=is_cursor)
     else:
-        rcode_home = Path.home() / ".rcode"
-        if not rcode_home.exists():
-            rcode_home.mkdir()
-
         run_loacl(
             options.host,
             options.dir,
