@@ -9,31 +9,15 @@ import json
 
 from pathlib import Path
 
-from .ipc import IPCServerSocket,IPCClientSocket, DEFAULT_IPC_PORT
+from .ipc import IPCClientSocket, DEFAULT_IPC_PORT
 
-ROOT_DIR = Path.home() / ".rcode"
-
-def init_root_dir():
-    migration = ROOT_DIR.is_file()
-    if migration:
-        ROOT_DIR.rename(ROOT_DIR.with_name('rcode.bk'))
-
-    if not ROOT_DIR.exists():
-        ROOT_DIR.mkdir(parents=True)
-    
-    config_file = ROOT_DIR / "rssh.config"
-    key_file = ROOT_DIR / "rssh.keyfile"
-
-    if not config_file.exists():
-        config_file.write_text("")
+def init_key_file():
+    key_file = Path.home() / "rssh.keyfile"
 
     my_key = str(uuid.uuid4())
     if not key_file.exists():
         key_file.write_text(my_key) 
 
-    if migration:
-        file = Path.home() / "rcode.bk"
-        file.rename(ROOT_DIR / "rcode")
 
 def find_destination_position(args):
     for i, arg in enumerate(args):
@@ -65,51 +49,54 @@ def create_ssh_args(addr: str, session: dict, args: list):
     return pre_dest + post_dest
     
 
-def is_rpc_server_running():
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-            client.settimeout(1)
-            client.connect("127.0.0.1", DEFAULT_IPC_PORT)
-        return True 
-    except:
-        return False
+def start_ipc_server():
+    if sys.platform == "win32":
+        proc = sp.Popen(
+            ["rssh-ipc"],
+            stdout=sp.DEVNULL,
+            creationflags=sp.CREATE_NO_WINDOW,
+            stderr=sp.STDOUT
+        )
+    else:
+        proc = sp.Popen(
+            ["rssh-ipc"],
+            stdout=sp.DEVNULL,
+            stderr=sp.STDOUT,
+            start_new_session=True
+        )
 
-def start_rpc_server():
-    server = IPCServerSocket(DEFAULT_IPC_PORT)
-    server_thread = server.start()
-    return server, server_thread
-
-def connect_to_rpc_server(host: str, port: int):
-    def connect():
-        try:
-            sock = IPCClientSocket()
-            sock.connect((host, port))
-            
-            return sock
-        except socket.error:
-            return None 
+    return proc
     
-    socks_client = connect()
-    if not socks_client:
-        sp.Popen(["rssh-ipc"])
+    
+def connect_to_rpc_server(host: str, port: int):
+    socks_client = IPCClientSocket()
+    try:
+        socks_client.connect((host, port))
+        print("connect to rpc server success")
+    except socket.error:
+        print("start ipc server")
+        start_ipc_server()
         time.sleep(0.2)
 
-        for _ in range(10):
-            try:
-                socks_client = connect()
-                if socks_client:
-                    break
-            except socket.error:
-                time.sleep(0.1)
-    
-    if not socks_client:
+    if socks_client.connected:
+        return socks_client
+
+    for _ in range(10):
+        try:
+            socks_client.connect((host, port))
+            if socks_client.connected:
+                break
+        except socket.error:
+            time.sleep(0.1)
+
+    if not socks_client.connected:
         print("Error: Failed to connect to RPC server", file=sys.stderr)
         sys.exit(1)
     
     return socks_client
 
 def create_session(sock: IPCClientSocket):
-    keyfile = Path.home() / ".rcode/rssh.keyfile"
+    keyfile = Path.home() / "rssh.keyfile"
 
     session_payload = {
         "method": "new_session",
@@ -121,7 +108,6 @@ def create_session(sock: IPCClientSocket):
 
     sock.write(session_payload)
     res = json.loads(sock.read())
-    print(res)
     if res.get("code") != 0:
         print("Error: Failed to create session, ", res.get("message"), file=sys.stderr)
         sys.exit(1)
@@ -142,7 +128,7 @@ def parse_ipc_args(args):
     return host, port, args
 
 def main():
-    init_root_dir()
+    init_key_file()
 
     args = sys.argv[1:]  # remove rssh itself
     if "-R" in args:
@@ -153,7 +139,6 @@ def main():
 
     with connect_to_rpc_server(host, port) as sock:
         session = create_session(sock)
-        print(session)
         addr = f"{host}:{port}"
         ssh_args = create_ssh_args(addr, session, args)
         

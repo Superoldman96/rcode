@@ -97,7 +97,7 @@ class MessageHandler:
             if field not in params:
                 raise ValueError(f"Missing required field: {field}")
             
-        keyfile = Path.home() / ".rcode/rssh.keyfile"
+        keyfile = Path.home() / "rssh.keyfile"
         if not keyfile.exists() or keyfile.read_text() != params["keyfile"]:
             raise IPCAuthError(f"Authentication failed")
         
