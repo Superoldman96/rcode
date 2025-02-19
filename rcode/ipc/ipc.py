@@ -4,19 +4,36 @@ import types
 import json
 import sys
 import subprocess as sp
-import time
 import uuid
+import logging
 
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+
+def initLogger(location: Path):
+  logger = logging.getLogger()
+  logger.setLevel(logging.INFO)
+  formatter = logging.Formatter("%(asctime)s - %(funcName)s - %(levelname)s - %(message)s")
+  handler = RotatingFileHandler(location.absolute(), maxBytes=10485760, backupCount=5)
+  handler.setFormatter(formatter)
+  logger.addHandler(handler)
+
+  return logger
 
 
 DEFAULT_IPC_PORT = 7532
 DELIMITER = b"\x1e"
 
+LOG_FILE = Path.home() / ".rssh/ipc.log"
+LOGGER = initLogger(LOG_FILE)
+
+
 class IPCAuthError(Exception):
     def raw_message(self):
         msg = json.dumps({"code": 401, "message": str(self)})
         return msg.encode("utf-8")
+
 
 class MessageHandler:
     # 定义为类属性
@@ -48,9 +65,11 @@ class MessageHandler:
                 skey = params['skey']
                 
                 if sid not in self.sessions:
+                    LOGGER.warning(f"Invalid session ID: {sid}, sessions: {self.sessions.keys()}")
                     raise IPCAuthError(f"Invalid session ID: {sid}")
                 
                 if self.sessions[sid].key != skey:
+                    LOGGER.warning(f"Invalid session key, sid: {sid}, key: {skey}")
                     raise IPCAuthError("Invalid session key")
                 
                 result = method_to_call(params)
@@ -86,7 +105,7 @@ class MessageHandler:
         try:
             proc = sp.run([params["bin"], "--folder-uri", ssh_remote], shell=is_win)
         except Exception as e:
-            print(e)
+            LOGGER.error("open_ide failed, params: %s", json.dumps(params), exc_info=True)
             return {"return_code": 1}
 
         return {"return_code": proc.returncode}
@@ -97,8 +116,9 @@ class MessageHandler:
             if field not in params:
                 raise ValueError(f"Missing required field: {field}")
             
-        keyfile = Path.home() / "rssh.keyfile"
+        keyfile = Path.home() / ".rssh/keyfile"
         if not keyfile.exists() or keyfile.read_text() != params["keyfile"]:
+            LOGGER.error("Authentication failed, except: %s, actual: %s", keyfile.read_text(), params["keyfile"])
             raise IPCAuthError(f"Authentication failed")
         
         sid = data.sid
@@ -109,7 +129,8 @@ class MessageHandler:
             hostname=params['hostname'], 
             key=key, 
         )
-
+        
+        LOGGER.info("New session created, sid: %s, key: %s", sid, key)
         return {"sid": sid, "key": key}
 
     def destroy_session(self, sid: str):

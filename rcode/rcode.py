@@ -81,6 +81,7 @@ def is_remote_cursor() -> bool:
 
 
 IS_REMOTE_VSCODE = is_remote_vscode() or is_remote_cursor()
+IS_RSSH_CLIENT = os.environ.get("RSSH_SID") and os.environ.get("RSSH_SKEY")
 
 
 def get_code_binary() -> Path:
@@ -170,7 +171,7 @@ def get_ipc_socket(max_idle_time: int = DEFAULT_MAX_IDLE_TIME, is_cursor=False) 
     return next_open_socket(sock_list, is_cursor=is_cursor)
 
 
-def send_and_run(bin_name: str, dirname: str, sid: str, skey: str):
+def send_message(bin_name: str, dirname: str, sid: str, skey: str):
     ipc_sock = f"/tmp/rssh-ipc-{sid}.sock"
     
     try:
@@ -201,12 +202,12 @@ def run_remote(
     if not dir_name:
         raise Exception("need dir name here")
     
-    sid = os.environ.get("RSSH_SID")
-    skey = os.environ.get("RSSH_SKEY")
-    if sid and skey:
+    if IS_RSSH_CLIENT:
         # communicate with rssh's IPC Socket
+        sid = os.environ.get("RSSH_SID")
+        skey = os.environ.get("RSSH_SKEY")
         bin_name = "cursor" if is_cursor else "code"
-        send_and_run(bin_name, dir_name, sid, skey)
+        send_message(bin_name, dir_name, sid, skey)
     elif IS_REMOTE_VSCODE:
         # communicate with vscode's IPC socket
         # Fetch the path of the "code" executable
@@ -320,7 +321,7 @@ def main(is_cursor=False):
         required=False,
     )
     options = parser.parse_args()
-    if IS_REMOTE_VSCODE:
+    if IS_RSSH_CLIENT or IS_REMOTE_VSCODE:
         run_remote(options.dir, is_cursor=is_cursor)
     else:
         run_loacl(
