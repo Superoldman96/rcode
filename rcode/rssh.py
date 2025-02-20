@@ -136,7 +136,7 @@ def parse_ipc_args(args):
     return host, port, args
 
 
-def main(args):
+def launch(args):
     init_files()
 
     if "-R" in args:
@@ -157,5 +157,10 @@ def main(args):
             pass
 
 
+def main():
+    launch(sys.argv[1:])
+
+
+
 if __name__ == "__main__":
-    main(args = sys.argv[1:])
+    main()

@@ -12,6 +12,9 @@ from pathlib import Path
 
 
 def initLogger(location: Path):
+  if not location.parent.exists():
+    location.parent.mkdir(parents=True, exist_ok=True)
+
   logger = logging.getLogger()
   logger.setLevel(logging.INFO)
   formatter = logging.Formatter("%(asctime)s - %(funcName)s - %(levelname)s - %(message)s")
