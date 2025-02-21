@@ -224,6 +224,9 @@ class IPCServerSocket:
             idle += 10
             sessions = self.active_sesssions()
             clients = len(sessions)
+            if clients > 0:
+                idle = 0
+
             logging.info("Server state: evnets %s, clients %s, idle %s", len(events), clients, idle)
             if not events and clients == 0 and idle > self.max_idle:
                 self.running = False
