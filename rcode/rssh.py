@@ -6,6 +6,7 @@ import socket
 import time
 import uuid
 import json
+import os
 
 from pathlib import Path
 
@@ -34,29 +35,35 @@ def find_destination_position(args):
     return -1
 
 
-def create_ssh_args(addr: str, sock: IPCClientSocket, args: list):
-    dest_pos = find_destination_position(args)
-    if dest_pos == -1:
-        proc = sp.run(["ssh"] + args)
-        sys.exit(proc.returncode)
+def create_ssh_args(ipc_host: str, ipc_port: int, args: list):
+    try:
+        sock = connect_to_rpc_server(ipc_host, ipc_port)
+        dest_pos = find_destination_position(args)
+        if dest_pos == -1:
+            proc = sp.run(["ssh"] + args)
+            sys.exit(proc.returncode)
 
-    hostname = args[dest_pos]
-    pre_dest = args[:dest_pos]
-    post_dest = args[dest_pos:]
-    if "-t" not in pre_dest:
-        pre_dest.append("-t")
+        hostname = args[dest_pos]
+        pre_dest = args[:dest_pos]
+        post_dest = args[dest_pos:]
+        if "-t" not in pre_dest:
+            pre_dest.append("-t")
 
-    session = create_session(sock, hostname)
+        session = create_session(sock, hostname)
+        sock.close()
 
-    sid = session["sid"]
-    key = session["key"]
-    ipc_sock = f"/tmp/rssh-ipc-{sid}.sock"
-    pre_dest.extend(["-R", f"{ipc_sock}:{addr}"])
+        sid = session["sid"]
+        key = session["key"]
+        addr = f"{ipc_host}:{ipc_port}"
+        ipc_sock = f"/tmp/rssh-ipc-{sid}.sock"
+        pre_dest.extend(["-R", f"{ipc_sock}:{addr}"])
 
-    remote_command = f"export RSSH_SID={sid}; export RSSH_SKEY={key}; exec $SHELL"
-    post_dest.append(remote_command)
+        remote_command = f"export RSSH_SID={sid}; export RSSH_SKEY={key}; exec $SHELL"
+        post_dest.append(remote_command)
 
-    return pre_dest + post_dest
+        return pre_dest + post_dest
+    finally:
+        sock.close()
 
 
 def start_ipc_server():
@@ -67,6 +74,7 @@ def start_ipc_server():
             creationflags=sp.CREATE_NO_WINDOW,
             stderr=sp.STDOUT,
         )
+
     else:
         proc = sp.Popen(
             ["rssh-ipc"], 
@@ -110,7 +118,7 @@ def connect_to_rpc_server(host: str, port: int):
 def create_session(sock: IPCClientSocket, hostname: str):
     session_payload = {
         "method": "new_session",
-        "params": {"hostname": hostname, "keyfile": KEY_FILE.read_text()},
+        "params": {"pid": os.getpid(), "hostname": hostname, "keyfile": KEY_FILE.read_text()},
     }
 
     sock.write(session_payload)
@@ -144,22 +152,27 @@ def launch(args):
         sys.exit(1)
 
     ipc_host, ipc_port, ssh_args = parse_ipc_args(args)
-    with connect_to_rpc_server(ipc_host, ipc_port) as sock:
-        try:
-            addr = f"{ipc_host}:{ipc_port}"
-            ssh_args = create_ssh_args(addr, sock, ssh_args)
-            proc = sp.run(['ssh'] + ssh_args)
+    try:
+        ssh_args = create_ssh_args(ipc_host, ipc_port, ssh_args)
+        if sys.platform == "win32":
+            proc = sp.run(
+                ['ssh'] + ssh_args,
+                stdin=sys.stdin,
+                stdout=sys.stdout, 
+                stderr=sys.stderr
+            )
             sys.exit(proc.returncode)
-        except ConnectionError:
-            print("Error: Failed to connect to RPC server", file=sys.stderr)
-            sys.exit(1)
-        except KeyboardInterrupt:
-            pass
+        else:
+            os.execvp("ssh", ["ssh"] + ssh_args)
+    except ConnectionError:
+        print("Error: Failed to connect to RPC server", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        pass
 
 
 def main():
     launch(sys.argv[1:])
-
 
 
 if __name__ == "__main__":

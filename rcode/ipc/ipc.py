@@ -7,6 +7,8 @@ import subprocess as sp
 import uuid
 import logging
 
+import psutil
+
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -114,7 +116,7 @@ class MessageHandler:
         return {"return_code": proc.returncode}
 
     def new_session(self, data: types.SimpleNamespace, params: dict):
-        required_fields = ['hostname', "keyfile"]
+        required_fields = ['hostname', "keyfile", "pid"]
         for field in required_fields:
             if field not in params:
                 raise ValueError(f"Missing required field: {field}")
@@ -126,14 +128,16 @@ class MessageHandler:
         
         sid = data.sid
         key = str(uuid.uuid4())
+        pid = params.get("pid", -1)
         self.sessions[sid] = types.SimpleNamespace(
             id=sid, 
             addr=data.addr, 
             hostname=params['hostname'], 
-            key=key, 
+            key=key,
+            pid=pid,
         )
         
-        LOGGER.info("New session created, sid: %s, key: %s", sid, key)
+        LOGGER.info("New session created, pid: %s, sid: %s", pid, sid)
         return {"sid": sid, "key": key}
 
     def destroy_session(self, sid: str):
@@ -141,7 +145,6 @@ class MessageHandler:
             del self.sessions[sid]
             return True
         return False
-        
 
 
 class IPCServerSocket:
@@ -191,7 +194,6 @@ class IPCServerSocket:
                 else:
                     data.inb += recv_data
             else:
-                self.message_handler.destroy_session(data.sid)
                 self.selector.unregister(sock)
                 sock.close()
 
@@ -220,8 +222,12 @@ class IPCServerSocket:
         while self.running:
             events = self.selector.select(timeout=10)
             idle += 10
-            clients = len(self.selector.get_map())
-            if not events and clients == 1 and idle > self.max_idle:
+            sessions = self.active_sesssions()
+            clients = len(sessions)
+            logging.info("Server state: evnets %s, clients %s, idle %s", len(events), clients, idle)
+            if not events and clients == 0 and idle > self.max_idle:
+                self.running = False
+                logging.info("Server stopped: evnets %s, clients %s, idle %s", len(events), clients, idle)
                 break
             
             for key, mask in events:
@@ -233,6 +239,28 @@ class IPCServerSocket:
                         self._handle_connection(key, mask)
                 except Exception as e:
                     print(e)
+
+    
+    def active_sesssions(self):
+        sessions = self.message_handler.sessions.values()
+        if len(sessions) == 0:
+            return []
+
+        pids = psutil.pids()
+        current_sessions = []
+        destoryed_sids = []
+        for s in sessions:
+            if s.pid not in pids:
+                destoryed_sids.append(s.id)
+            else:
+                current_sessions.append(s)
+        
+        for sid in destoryed_sids:
+            logging.info("Destroy session: %s", sid)
+            self.message_handler.destroy_session(sid)
+        
+        return current_sessions
+
 
     def stop(self):
         if not self.running:
@@ -301,4 +329,4 @@ class IPCClientSocket:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-        return False 
+        return False

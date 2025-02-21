@@ -13,7 +13,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     zip_safe=True,
-    install_requires=["sshconf"],
+    install_requires=["sshconf", "psutil"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Environment :: Console",
