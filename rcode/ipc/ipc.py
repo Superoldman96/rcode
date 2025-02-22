@@ -106,12 +106,11 @@ class MessageHandler:
         is_win = sys.platform == "win32"
 
         ssh_remote = f"vscode-remote://ssh-remote+{remote_name}{remote_dir}"
-        # ssh_remote = ssh_remote.format(remote_name=remote_name, remote_dir=remote_dir)
         try:
             proc = sp.run([params["bin"], "--folder-uri", ssh_remote], shell=is_win)
-        except Exception:
+        except Exception as e:
             LOGGER.error("open_ide failed, params: %s", json.dumps(params), exc_info=True)
-            return {"return_code": 1}
+            raise e
 
         return {"return_code": proc.returncode}
 
