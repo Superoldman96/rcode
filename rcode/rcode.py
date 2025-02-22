@@ -32,20 +32,14 @@ def fail(*msgs, retcode: int = 1) -> NoReturn:
     exit(retcode)
 
 
-def is_socket_open(socket_path, timeout=1):
-    if not os.path.exists(socket_path):
-        return False
-
+def is_socket_open(path: Path, timeout: int = 2) -> bool:
     try:
-        mode = os.stat(socket_path).st_mode
-        if not stat.S_ISSOCK(mode):
-            return False
-
+        socket_path = path.resolve()
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(timeout)
-            client.connect(socket_path)
-        return True 
-    except:
+            client.connect(str(socket_path))
+            return True
+    except Exception:
         return False
 
 
@@ -173,7 +167,7 @@ def get_ipc_socket(max_idle_time: int = DEFAULT_MAX_IDLE_TIME, is_cursor=False) 
 
 def send_message(bin_name: str, dirname: str, sid: str, skey: str):
     ipc_sock = f"/tmp/rssh-ipc-{sid}.sock"
-    
+
     try:
         sock = IPCClientSocket(socket.AF_UNIX)
         sock.connect(ipc_sock)
@@ -191,17 +185,18 @@ def send_message(bin_name: str, dirname: str, sid: str, skey: str):
         res = json.loads(sock.read()) or {}
         if res.get("code", -1) != 0:
             fail(res.get("message", "Unknown error"))
-    except Exception as e:
-        fail(f"Failed to connect to rssh's IPC socket: {e}")
+    # except Exception as e:
+        # fail(f"Failed to connect to rssh's IPC socket: {e}")
     finally:
         sock.close()
+
 
 def run_remote(
     dir_name, max_idle_time: int = DEFAULT_MAX_IDLE_TIME, is_cursor: bool = False
 ) -> NoReturn:
     if not dir_name:
         raise Exception("need dir name here")
-    
+
     if IS_RSSH_CLIENT:
         # communicate with rssh's IPC Socket
         sid = os.environ.get("RSSH_SID")

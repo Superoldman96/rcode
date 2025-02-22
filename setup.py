@@ -28,7 +28,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "rcode = rcode.rcode:main", 
+            "rcode = rcode.rcode:main",
             "rcursor = rcode.rcode:cmain",
             "rssh = rcode.rssh:main",
             "rssh-ipc = rcode.ipc.ipc_runner:main",

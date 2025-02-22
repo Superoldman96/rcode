@@ -14,17 +14,17 @@ from pathlib import Path
 
 
 def initLogger(location: Path):
-  if not location.parent.exists():
-    location.parent.mkdir(parents=True, exist_ok=True)
+    if not location.parent.exists():
+        location.parent.mkdir(parents=True, exist_ok=True)
 
-  logger = logging.getLogger()
-  logger.setLevel(logging.INFO)
-  formatter = logging.Formatter("%(asctime)s - %(funcName)s - %(levelname)s - %(message)s")
-  handler = RotatingFileHandler(location.absolute(), maxBytes=10485760, backupCount=5)
-  handler.setFormatter(formatter)
-  logger.addHandler(handler)
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(funcName)s - %(message)s")
+    handler = RotatingFileHandler(location.absolute(), maxBytes=10485760, backupCount=5)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
-  return logger
+    return logger
 
 
 DEFAULT_IPC_PORT = 7532
@@ -47,7 +47,7 @@ class MessageHandler:
     RPC_METHODS = AUTH_METHODS + ANNO_METHODS
 
     def __init__(self):
-        self.sessions = {} 
+        self.sessions = {}
 
     def handle_message(self, raw_data: bytes, key: selectors.SelectorKey):
         try:
@@ -57,30 +57,30 @@ class MessageHandler:
 
             if 'method' not in payload:
                 raise ValueError("Missing required 'method' field in request")
-            
+
             if not hasattr(self, method_name) or method_name not in self.RPC_METHODS:
                 raise ValueError(f"Method '{method_name}' not found.")
-            
+
             method_to_call = getattr(self, method_name)
             if method_name not in self.ANNO_METHODS:
                 if 'sid' not in params or 'skey' not in params:
                     raise IPCAuthError("Missing authentication credentials (sid, skey)")
-                
+
                 sid = params['sid']
                 skey = params['skey']
-                
+
                 if sid not in self.sessions:
                     LOGGER.warning(f"Invalid session ID: {sid}, sessions: {self.sessions.keys()}")
                     raise IPCAuthError(f"Invalid session ID: {sid}")
-                
+
                 if self.sessions[sid].key != skey:
                     LOGGER.warning(f"Invalid session key, sid: {sid}, key: {skey}")
                     raise IPCAuthError("Invalid session key")
-                
+
                 result = method_to_call(params)
             else:
                 result = method_to_call(key.data, params)
-            
+
             response = {"code": 0, "data": result}
             return json.dumps(response).encode("utf-8")
         except json.JSONDecodeError as e:
@@ -99,17 +99,17 @@ class MessageHandler:
 
         if params.get("path") is None:
             raise ValueError("Missing required 'path' field in request")
-        
+
         session = self.sessions[params['sid']]
         remote_name = session.hostname
         remote_dir = params['path']
         is_win = sys.platform == "win32"
 
-        ssh_remote = "vscode-remote://ssh-remote+{remote_name}{remote_dir}"
-        ssh_remote = ssh_remote.format(remote_name=remote_name, remote_dir=remote_dir)
+        ssh_remote = f"vscode-remote://ssh-remote+{remote_name}{remote_dir}"
+        # ssh_remote = ssh_remote.format(remote_name=remote_name, remote_dir=remote_dir)
         try:
             proc = sp.run([params["bin"], "--folder-uri", ssh_remote], shell=is_win)
-        except Exception as e:
+        except Exception:
             LOGGER.error("open_ide failed, params: %s", json.dumps(params), exc_info=True)
             return {"return_code": 1}
 
@@ -120,24 +120,24 @@ class MessageHandler:
         for field in required_fields:
             if field not in params:
                 raise ValueError(f"Missing required field: {field}")
-            
+
         keyfile = Path.home() / ".rssh/keyfile"
         if not keyfile.exists() or keyfile.read_text() != params["keyfile"]:
-            LOGGER.error("Authentication failed, except: %s, actual: %s", keyfile.read_text(), params["keyfile"])
-            raise IPCAuthError(f"Authentication failed")
-        
+            LOGGER.error("Authentication failed, key: %s", params["keyfile"])
+            raise IPCAuthError("Authentication failed: Invalid key")
+
         sid = data.sid
         key = str(uuid.uuid4())
         pid = params.get("pid", -1)
         self.sessions[sid] = types.SimpleNamespace(
-            id=sid, 
-            addr=data.addr, 
-            hostname=params['hostname'], 
+            id=sid,
+            addr=data.addr,
+            hostname=params['hostname'],
             key=key,
             pid=pid,
         )
-        
-        LOGGER.info("New session created, pid: %s, sid: %s", pid, sid)
+
+        LOGGER.info("New session, pid: %s, sid: %s", pid, sid)
         return {"sid": sid, "key": key}
 
     def destroy_session(self, sid: str):
@@ -148,9 +148,12 @@ class MessageHandler:
 
 
 class IPCServerSocket:
+
+    EVENT_RW = selectors.EVENT_READ | selectors.EVENT_WRITE
+
     def __init__(self, max_idle: int = 600):
         self.selector = selectors.DefaultSelector()
-        self.message_handler = MessageHandler()
+        self.handler = MessageHandler()
         self.running = False
         self.server_socket = None
         self.max_idle = max_idle
@@ -159,10 +162,10 @@ class IPCServerSocket:
         conn, addr = sock.accept()
         conn.setblocking(False)
         data = types.SimpleNamespace(
-            addr=addr, 
-            inb=b'', 
-            outb=b'', 
-            sid=str(uuid.uuid4()), 
+            addr=addr,
+            inb=b'',
+            outb=b'',
+            sid=str(uuid.uuid4()),
             last_write=False
         )
         self.selector.register(conn, selectors.EVENT_READ, data=data)
@@ -172,21 +175,20 @@ class IPCServerSocket:
         data = key.data
 
         if mask & selectors.EVENT_READ:
-            recv_data = sock.recv(1024)  # Should be ready to read
-            print("recv_data:", recv_data)
+            recv_data = sock.recv(1024)
             if recv_data:
                 delimiter_index = recv_data.find(DELIMITER)
                 if delimiter_index != -1:
                     raw_data = data.inb + recv_data[:delimiter_index]
-                    
+
                     if delimiter_index < len(recv_data) - 1:
                         data.inb = recv_data[delimiter_index + 1:]
                     else:
                         data.inb = b''
-                    
+
                     try:
-                        data.outb = self.message_handler.handle_message(raw_data, key) + DELIMITER
-                        self.selector.modify(sock, selectors.EVENT_READ | selectors.EVENT_WRITE, data=data)
+                        data.outb = self.handler.handle_message(raw_data, key) + DELIMITER
+                        self.selector.modify(sock, self.EVENT_RW, data=data)
                     except IPCAuthError as e:
                         data.outb = e.raw_message()
                         data.last_write = True
@@ -216,23 +218,27 @@ class IPCServerSocket:
 
         self.server_socket.setblocking(False)
         self.selector.register(self.server_socket, selectors.EVENT_READ, data=None)
-        
+
         self.running = True
         idle = 0
         while self.running:
             events = self.selector.select(timeout=10)
-            idle += 10
             sessions = self.active_sesssions()
             clients = len(sessions)
-            if clients > 0:
-                idle = 0
+            idle = 0 if clients > 0 else idle + 10
 
-            logging.info("Server state: evnets %s, clients %s, idle %s", len(events), clients, idle)
+            logging.info(
+                "Server state: evnets %s, clients %s, idle %s",
+                len(events), clients, idle
+            )
             if not events and clients == 0 and idle > self.max_idle:
                 self.running = False
-                logging.info("Server stopped: evnets %s, clients %s, idle %s", len(events), clients, idle)
+                logging.info(
+                    "Server stopped: evnets %s, clients %s, idle %s",
+                    len(events), clients, idle
+                 )
                 break
-            
+
             for key, mask in events:
                 idle = 0
                 try:
@@ -243,9 +249,8 @@ class IPCServerSocket:
                 except Exception as e:
                     print(e)
 
-    
     def active_sesssions(self):
-        sessions = self.message_handler.sessions.values()
+        sessions = self.handler.sessions.values()
         if len(sessions) == 0:
             return []
 
@@ -257,13 +262,12 @@ class IPCServerSocket:
                 destoryed_sids.append(s.id)
             else:
                 current_sessions.append(s)
-        
+
         for sid in destoryed_sids:
             logging.info("Destroy session: %s", sid)
-            self.message_handler.destroy_session(sid)
-        
-        return current_sessions
+            self.handler.destroy_session(sid)
 
+        return current_sessions
 
     def stop(self):
         if not self.running:
@@ -285,42 +289,42 @@ class IPCClientSocket:
     def __init__(self, socket_type=socket.AF_INET):
         self.sock = socket.socket(socket_type, socket.SOCK_STREAM)
         self.connected = False
-        
+
     def connect(self, target):
         self.sock.connect(target)
         self.connected = True
-        
+
     def write(self, data):
         if not self.connected:
             raise RuntimeError("Not connected to server")
-            
+
         if isinstance(data, str):
             data = data.encode('utf-8')
         elif not isinstance(data, bytes):
             data = json.dumps(data).encode('utf-8')
-            
+
         if not data.endswith(DELIMITER):
             data += DELIMITER
-            
+
         self.sock.sendall(data)
-        
+
     def read(self):
         if not self.connected:
             raise RuntimeError("Not connected to server")
-            
+
         buffer = b''
         while True:
             chunk = self.sock.recv(1024)
             if not chunk:
                 raise ConnectionError("Connection closed by server")
-                
+
             buffer += chunk
             delimiter_index = buffer.find(DELIMITER)
-            
+
             if delimiter_index != -1:
                 message = buffer[:delimiter_index]
                 return message
-                
+
     def close(self):
         if self.sock and self.connected:
             self.sock.close()
@@ -329,7 +333,7 @@ class IPCClientSocket:
 
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False

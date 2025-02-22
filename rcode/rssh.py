@@ -77,9 +77,9 @@ def start_ipc_server():
 
     else:
         proc = sp.Popen(
-            ["rssh-ipc"], 
-            stdout=sp.DEVNULL, 
-            stderr=sp.STDOUT, 
+            ["rssh-ipc"],
+            stdout=sp.DEVNULL,
+            stderr=sp.STDOUT,
             start_new_session=True
         )
 
@@ -118,7 +118,11 @@ def connect_to_rpc_server(host: str, port: int):
 def create_session(sock: IPCClientSocket, hostname: str):
     session_payload = {
         "method": "new_session",
-        "params": {"pid": os.getpid(), "hostname": hostname, "keyfile": KEY_FILE.read_text()},
+        "params": {
+            "pid": os.getpid(),
+            "hostname": hostname,
+            "keyfile": KEY_FILE.read_text()
+        },
     }
 
     sock.write(session_payload)
@@ -158,7 +162,7 @@ def launch(args):
             proc = sp.run(
                 ['ssh'] + ssh_args,
                 stdin=sys.stdin,
-                stdout=sys.stdout, 
+                stdout=sys.stdout,
                 stderr=sys.stderr
             )
             sys.exit(proc.returncode)
