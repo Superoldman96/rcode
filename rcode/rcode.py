@@ -185,8 +185,7 @@ def send_message(bin_name: str, dirname: str, sid: str, skey: str):
         res = json.loads(sock.read()) or {}
         if res.get("code", -1) != 0:
             fail(res.get("message", "Unknown error"))
-    # except Exception as e:
-        # fail(f"Failed to connect to rssh's IPC socket: {e}")
+
     finally:
         sock.close()
 
@@ -198,12 +197,16 @@ def run_remote(
         raise Exception("need dir name here")
 
     if IS_RSSH_CLIENT:
-        # communicate with rssh's IPC Socket
-        sid = os.environ.get("RSSH_SID")
-        skey = os.environ.get("RSSH_SKEY")
-        bin_name = "cursor" if is_cursor else "code"
-        send_message(bin_name, dir_name, sid, skey)
-    elif IS_REMOTE_VSCODE:
+        try:
+            # communicate with rssh's IPC Socket
+            sid = os.environ.get("RSSH_SID")
+            skey = os.environ.get("RSSH_SKEY")
+            bin_name = "cursor" if is_cursor else "code"
+            send_message(bin_name, dir_name, sid, skey)
+        except Exception as e:
+            print(f"Failed to connect to rssh's IPC socket: {e}\ntrying fallback to vscode's IPC socket")
+
+    if IS_REMOTE_VSCODE:
         # communicate with vscode's IPC socket
         # Fetch the path of the "code" executable
         # and determine an active IPC socket to use
