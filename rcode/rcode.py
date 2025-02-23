@@ -203,6 +203,7 @@ def run_remote(
             skey = os.environ.get("RSSH_SKEY")
             bin_name = "cursor" if is_cursor else "code"
             send_message(bin_name, dir_name, sid, skey)
+            return
         except Exception as e:
             print(f"Failed to connect to rssh's IPC socket: {e}\ntrying fallback to vscode's IPC socket")
 
