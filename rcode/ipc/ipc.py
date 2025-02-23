@@ -105,6 +105,7 @@ class MessageHandler:
         remote_dir = params['path']
         is_win = sys.platform == "win32"
 
+        logging.info("host: %s uri: %s", remote_name, remote_dir)
         ssh_remote = f"vscode-remote://ssh-remote+{remote_name}{remote_dir}"
         try:
             proc = sp.run([params["bin"], "--folder-uri", ssh_remote], shell=is_win)
@@ -136,7 +137,7 @@ class MessageHandler:
             pid=pid,
         )
 
-        LOGGER.info("New session, pid: %s, sid: %s", pid, sid)
+        LOGGER.info("pid: %s, sid: %s", pid, sid)
         return {"sid": sid, "key": key}
 
     def destroy_session(self, sid: str):
@@ -222,14 +223,19 @@ class IPCServerSocket:
         idle = 0
         while self.running:
             events = self.selector.select(timeout=10)
-            sessions = self.active_sesssions()
-            clients = len(sessions)
-            idle = 0 if clients > 0 else idle + 10
+            activated_sids, deactivated_sids = self.active_sesssions()
+            clients = len(activated_sids) + len(deactivated_sids)
+            if len(deactivated_sids) > 0:
+                for sid in deactivated_sids:
+                    logging.info("remove session: %s", sid)
+                    self.handler.destroy_session(sid)
 
-            logging.info(
-                "Server state: evnets %s, clients %s, idle %s",
-                len(events), clients, idle
-            )
+                logging.info(
+                    "Server state: clients %s idle %s",
+                    clients - len(deactivated_sids), idle
+                )
+
+            idle = 0 if clients > 0 else idle + 10
             if not events and clients == 0 and idle > self.max_idle:
                 self.running = False
                 logging.info(
@@ -249,24 +255,20 @@ class IPCServerSocket:
                     print(e)
 
     def active_sesssions(self):
+        activated_sids = []
+        deactivated_sids = []
         sessions = self.handler.sessions.values()
         if len(sessions) == 0:
-            return []
+            return activated_sids, deactivated_sids
 
         pids = psutil.pids()
-        current_sessions = []
-        destoryed_sids = []
         for s in sessions:
             if s.pid not in pids:
-                destoryed_sids.append(s.id)
+                deactivated_sids.append(s.id)
             else:
-                current_sessions.append(s)
+                activated_sids.append(s.id)
 
-        for sid in destoryed_sids:
-            logging.info("Destroy session: %s", sid)
-            self.handler.destroy_session(sid)
-
-        return current_sessions
+        return activated_sids, deactivated_sids
 
     def stop(self):
         if not self.running:

@@ -32,6 +32,7 @@ setup(
             "rcursor = rcode.rcode:cmain",
             "rssh = rcode.rssh:main",
             "rssh-ipc = rcode.ipc.ipc_runner:main",
+            "ssh-wrapper = rcode.rssh:ssh_wrapper",
         ],
     },
 )

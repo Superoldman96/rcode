@@ -90,9 +90,9 @@ def connect_to_rpc_server(host: str, port: int):
     socks_client = IPCClientSocket()
     try:
         socks_client.connect((host, port))
-        print("connect to rpc server success")
+        print("Connected to RPC server successfully")
     except socket.error:
-        print("start ipc server")
+        print("Starting IPC server...")
         start_ipc_server()
         time.sleep(0.2)
 
@@ -148,6 +148,19 @@ def parse_ipc_args(args):
     return host, port, args
 
 
+def run_ssh(ssh_args):
+    if sys.platform == "win32":
+        proc = sp.run(
+            ['ssh'] + ssh_args,
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr
+        )
+        sys.exit(proc.returncode)
+    else:
+        os.execvp("ssh", ["ssh"] + ssh_args)
+
+
 def launch(args):
     init_files()
 
@@ -158,16 +171,7 @@ def launch(args):
     ipc_host, ipc_port, ssh_args = parse_ipc_args(args)
     try:
         ssh_args = create_ssh_args(ipc_host, ipc_port, ssh_args)
-        if sys.platform == "win32":
-            proc = sp.run(
-                ['ssh'] + ssh_args,
-                stdin=sys.stdin,
-                stdout=sys.stdout,
-                stderr=sys.stderr
-            )
-            sys.exit(proc.returncode)
-        else:
-            os.execvp("ssh", ["ssh"] + ssh_args)
+        run_ssh(ssh_args)
     except ConnectionError:
         print("Error: Failed to connect to RPC server", file=sys.stderr)
         sys.exit(1)
@@ -177,6 +181,17 @@ def launch(args):
 
 def main():
     launch(sys.argv[1:])
+
+
+def ssh_wrapper():
+    args = sys.argv[1:]
+
+    if "--rssh" in args:
+        args.remove("--rssh")
+        print("rssh is enabled")
+        launch(args)
+    else:
+        run_ssh(args)
 
 
 if __name__ == "__main__":
