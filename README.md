@@ -41,19 +41,41 @@ RSSH enables seamless remote development by allowing you to launch VS Code/Curso
 2. Setting up IPC (Inter-Process Communication) sockets for command transmission
 3. Managing remote sessions with unique identifiers and keys
 
+https://github.com/user-attachments/assets/41a44915-4714-4fce-8705-a1550921b2f3
+
 ### Usage
 
 1. Connect to remote server using `rssh`:
 
+RSSH is designed to be fully compatible with SSH parameters, with the exception of the -R and -T options, which are not allowed when using RSSH.
+
 ```bash
 rssh your-remote-server
 ```
+
+All standard SSH parameters can be used with rssh, except -R and -T.
 
 2. On the remote server, you can now use:
 ```bash
 rcode .      # Launch VS Code
 rcursor .    # Launch Cursor
 ```
+
+### Using `ssh-wrapper`
+
+If you'd like to use rssh as a drop-in replacement for ssh, you can utilize the provided ssh-wrapper. By adding an alias in your shell configuration file (e.g., ~/.bashrc or ~/.zshrc), you can override the ssh command:
+
+```shell
+alias ssh="ssh-wrapper"
+```
+
+With this alias in place, when you use ssh, it will invoke ssh-wrapper. To activate rssh, include the --rssh parameter:
+
+```shell
+ssh --rssh your-remote-server
+```
+
+If you do not include the --rssh parameter, it will behave as the default ssh command.
 
 ### How It Works
 
