@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import subprocess as sp
+import argparse
 import sys
 import socket
 import time
@@ -66,10 +67,10 @@ def create_ssh_args(ipc_host: str, ipc_port: int, args: list):
         sock.close()
 
 
-def start_ipc_server():
+def start_ipc_server(host: str, port: int):
     if sys.platform == "win32":
         proc = sp.Popen(
-            ["rssh-ipc"],
+            ["rssh-ipc", "--host", host, "--port", str(port)],
             stdout=sp.DEVNULL,
             creationflags=sp.CREATE_NO_WINDOW,
             stderr=sp.STDOUT,
@@ -77,7 +78,7 @@ def start_ipc_server():
 
     else:
         proc = sp.Popen(
-            ["rssh-ipc"],
+            ["rssh-ipc", "--host", host, "--port", str(port)],
             stdout=sp.DEVNULL,
             stderr=sp.STDOUT,
             start_new_session=True
@@ -93,7 +94,7 @@ def connect_to_rpc_server(host: str, port: int):
         print("Connected to RPC server successfully")
     except socket.error:
         print("Starting IPC server...")
-        start_ipc_server()
+        start_ipc_server(host, port)
         time.sleep(0.2)
 
     if socks_client.connected:
@@ -135,17 +136,25 @@ def create_session(sock: IPCClientSocket, hostname: str):
 
 
 def parse_ipc_args(args):
-    host = "127.0.0.1"
-    if len(args) > 0 and "-ih" == args[0]:
-        host = args[1]
-        args = args[2:]
+    parser = argparse.ArgumentParser(description="IPC Server")
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        required=False,
+        help="host to listen on (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_IPC_PORT,
+        required=False,
+        help=f"Port to listen on (default: {DEFAULT_IPC_PORT})",
+    )
 
-    port = DEFAULT_IPC_PORT
-    if len(args) > 0 and "-il" == args[0]:
-        port = args[1]
-        args = args[2:]
+    argv, args = parser.parse_known_args(args)
 
-    return host, port, args
+    return argv.host, argv.port, args
 
 
 def run_ssh(ssh_args):
@@ -164,8 +173,8 @@ def run_ssh(ssh_args):
 def launch(args):
     init_files()
 
-    if "-R" in args:
-        print("Error: -R is not allowed when using rssh.", file=sys.stderr)
+    if "-R" in args or "-T" in args:
+        print("Error: -R and -T isn't allowed when using rssh.", file=sys.stderr)
         sys.exit(1)
 
     ipc_host, ipc_port, ssh_args = parse_ipc_args(args)

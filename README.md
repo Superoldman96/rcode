@@ -91,11 +91,6 @@ If you do not include the --rssh parameter, it will behave as the default ssh co
 
 ### Advanced Options
 
-- Custom IPC host: `rssh -ih <host> your-remote-server`
-- Custom IPC port: `rssh -il <port> your-remote-server`
+- Custom IPC host: `rssh --host <host> your-remote-server`
+- Custom IPC port: `rssh --port <port> your-remote-server`
 
-### Security
-
-- Each session uses unique identifiers and keys
-- Communication is secured through SSH tunneling
-- IPC sockets are restricted to the current user
